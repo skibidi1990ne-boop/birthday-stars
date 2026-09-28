@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#05030d">
+  <title>Chúc mừng sinh nhật</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #05030d; }
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    canvas { display: block; width: 100%; height: 100%; touch-action: manipulation; }
+    .hint {
+      position: fixed; left: 50%; bottom: max(22px, env(safe-area-inset-bottom));
+      transform: translateX(-50%); z-index: 2; pointer-events: none;
+      color: rgba(255,255,255,.58); font-size: 13px; letter-spacing: .03em;
+      text-align: center; white-space: nowrap; transition: opacity 1s ease;
+    }
+    .hint.hide { opacity: 0; }
+  </style>
+</head>
+<body>
+  <canvas id="scene" aria-label="Hiệu ứng sao chúc mừng sinh nhật"></canvas>
+  <div class="hint" id="hint">Chạm vào màn hình để chuyển cảnh</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('scene');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const hint = document.getElementById('hint');
+  const TAU = Math.PI * 2;
+  const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let w = 0, h = 0, dpr = 1;
+  let stars = [], particles = [], textPoints = [], heartPoints = [];
+  let mode = 'text';
+  let modeStarted = performance.now();
+  let nextModeTimer;
+  let heartAngle = 0;
+  let lastFrame = performance.now();
+  const particleCount = 1250;
+
+  const rand = (min, max) => min + Math.random() * (max - min);
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  const ease = t => t * t * (3 - 2 * t);
+
+  function resize() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    w = innerWidth; h = innerHeight;
+    canvas.width = Math.floor(w * dpr); canvas.height = Math.floor(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    createStars();
+    textPoints = makeTextPoints();
+    heartPoints = makeHeartPoints();
+    if (!particles.length) particles = Array.from({ length: particleCount }, () => new Particle());
+    setTargets(mode, true);
+  }
+
+  function createStars() {
+    const count = Math.round(clamp((w * h) / 6500, 100, 240));
+    stars = Array.from({ length: count }, () => ({
+      x: Math.random() * w, y: Math.random() * h,
+      r: rand(.35, 1.25), a: rand(.2, .85), twinkle: rand(.7, 2.2), phase: rand(0, TAU)
+    }));
+  }
+
+  function sampleCanvasText(lines) {
+    const off = document.createElement('canvas');
+    off.width = Math.max(1, Math.floor(w)); off.height = Math.max(1, Math.floor(h));
+    const c = off.getContext('2d');
+    const mobile = w < 620;
+    const fontSize = mobile ? clamp(w / 8.8, 24, 42) : clamp(w / 15, 30, 64);
+    c.font = `800 ${fontSize}px system-ui, -apple-system, sans-serif`;
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff';
+    const lineGap = fontSize * 1.35;
+    lines.forEach((line, i) => c.fillText(line, w / 2, h / 2 + (i - (lines.length - 1) / 2) * lineGap));
+    const pixels = c.getImageData(0, 0, off.width, off.height).data;
+    const points = [];
+    const step = Math.max(2, Math.round(Math.min(w, h) / 180));
+    for (let y = 0; y < h; y += step) for (let x = 0; x < w; x += step) {
+      if (pixels[(y * off.width + x) * 4 + 3] > 120) points.push({ x, y });
+    }
+    return points;
+  }
+
+  function makeTextPoints() {
+    return sampleCanvasText(w < 620 ? ['CHÚC MỪNG', 'SINH NHẬT', 'BẠN'] : ['CHÚC MỪNG SINH NHẬT BẠN']);
+  }
+
+  function makeHeartPoints() {
+    const scale = Math.min(w, h) / 38;
+    const points = [];
+    for (let i = 0; i < particleCount; i++) {
+      const t = Math.random() * TAU;
+      const fill = Math.sqrt(Math.random());
+      const x = 16 * Math.pow(Math.sin(t), 3) * fill * scale;
+      const y = -(13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)) * fill * scale;
+      points.push({ x, y: y - Math.min(8, h * .012) });
+    }
+    return points;
+  }
+
+  function setTargets(nextMode, instant = false) {
+    mode = nextMode;
+    const points = mode === 'heart' ? heartPoints : textPoints;
+    particles.forEach((p, i) => {
+      if (mode === 'heart') {
+        const q = points[i % points.length]; p.localX = q.x; p.localY = q.y;
+      } else {
+        const q = points[i % points.length]; p.localX = q.x; p.localY = q.y;
+      }
+      const target = mode === 'heart' ? rotatedHeartPoint(p.localX, p.localY) : { x: p.localX, y: p.localY };
+      p.tx = target.x; p.ty = target.y;
+      if (instant) { p.x = target.x; p.y = target.y; p.vx = p.vy = 0; }
+      p.heart = mode === 'heart';
+    });
+    modeStarted = performance.now();
+    clearTimeout(nextModeTimer);
+    nextModeTimer = setTimeout(() => setTargets(mode === 'text' ? 'heart' : 'text'), mode === 'text' ? 5200 : 17500);
+  }
+
+  function rotatedHeartPoint(x, y) {
+    const cs = Math.cos(heartAngle), sn = Math.sin(heartAngle);
+    return { x: w / 2 + x * cs - y * sn, y: h / 2 + x * sn + y * cs };
+  }
+
+  class Particle {
+    constructor() {
+      this.x = Math.random() * w; this.y = Math.random() * h;
+      this.tx = this.x; this.ty = this.y; this.localX = 0; this.localY = 0;
+      this.vx = 0; this.vy = 0; this.size = rand(.65, 1.85);
+      this.phase = rand(0, TAU); this.heart = false;
+    }
+    update(dt, time) {
+      const target = this.heart ? rotatedHeartPoint(this.localX, this.localY) : { x: this.localX, y: this.localY };
+      this.tx = target.x; this.ty = target.y;
+      const dx = this.tx - this.x, dy = this.ty - this.y;
+      this.vx += dx * .0027 * dt; this.vy += dy * .0027 * dt;
+      this.vx *= Math.pow(.84, dt / 16.67); this.vy *= Math.pow(.84, dt / 16.67);
+      this.x += this.vx * dt / 16.67; this.y += this.vy * dt / 16.67;
+      const wobble = Math.sin(time * .002 + this.phase) * .12;
+      this.x += wobble; this.y += Math.cos(time * .0017 + this.phase) * .12;
+    }
+    draw(time) {
+      let color;
+      if (this.heart) {
+        const wave = (Math.sin(time * .0011 + this.phase) + 1) / 2;
+        color = `hsl(${346 + wave * 17}, 100%, ${66 + wave * 14}%)`;
+      } else color = `hsl(${188 + (this.phase % 1) * 45}, 100%, 82%)`;
+      ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = this.heart ? 10 : 7;
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, TAU); ctx.fill();
+    }
+  }
+
+  function drawBackground(time) {
+    ctx.fillStyle = 'rgba(5, 3, 13, .25)'; ctx.fillRect(0, 0, w, h);
+    for (const s of stars) {
+      const alpha = clamp(s.a + Math.sin(time * .001 * s.twinkle + s.phase) * .22, .05, 1);
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.fill();
+    }
+  }
+
+  function frame(time) {
+    const dt = Math.min(34, time - lastFrame); lastFrame = time;
+    if (mode === 'heart' && !prefersReducedMotion) heartAngle = ((time - modeStarted) * .000035) % TAU;
+    drawBackground(time);
+    particles.forEach(p => { p.update(dt, time); p.draw(time); });
+    requestAnimationFrame(frame);
+  }
+
+  function toggle() {
+    hint.classList.add('hide'); setTargets(mode === 'text' ? 'heart' : 'text');
+  }
+
+  addEventListener('resize', resize, { passive: true });
+  addEventListener('pointerup', toggle, { passive: true });
+  resize();
+  setTimeout(() => hint.classList.add('hide'), 5000);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
