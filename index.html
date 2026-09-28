@@ -18,17 +18,29 @@
       text-align: center; white-space: nowrap; transition: opacity 1s ease;
     }
     .hint.hide { opacity: 0; }
+    .wish {
+      position: fixed; left: 50%; top: 73%; width: min(90vw, 560px);
+      transform: translate(-50%, 12px); z-index: 2; pointer-events: none;
+      color: rgba(255, 220, 235, 0); text-align: center;
+      font-size: clamp(16px, 3.8vw, 24px); line-height: 1.45;
+      font-weight: 600; letter-spacing: .02em;
+      text-shadow: 0 0 18px rgba(255, 60, 145, .8);
+      transition: opacity 1.4s ease, transform 1.4s ease, color 1.4s ease;
+    }
+    .wish.show { color: rgba(255, 220, 235, .95); transform: translate(-50%, 0); }
   </style>
 </head>
 <body>
   <canvas id="scene" aria-label="Hiệu ứng sao chúc mừng sinh nhật"></canvas>
-  <div class="hint" id="hint">Chạm vào màn hình để chuyển cảnh</div>
+  <div class="hint" id="hint">Chạm vào màn hình để xem trái tim</div>
+  <div class="wish" id="wish">Chúc bạn tuổi mới thật nhiều niềm vui,<br>luôn hạnh phúc và rực rỡ như những vì sao nhé!</div>
 
 <script>
 (() => {
   const canvas = document.getElementById('scene');
   const ctx = canvas.getContext('2d', { alpha: false });
   const hint = document.getElementById('hint');
+  const wish = document.getElementById('wish');
   const TAU = Math.PI * 2;
   const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -81,6 +93,14 @@
     for (let y = 0; y < h; y += step) for (let x = 0; x < w; x += step) {
       if (pixels[(y * off.width + x) * 4 + 3] > 120) points.push({ x, y });
     }
+    // Lấy đều trên toàn bộ chữ để không bị mất phần dưới khi số điểm quá nhiều.
+    if (points.length > particleCount) {
+      const evenlySampled = [];
+      for (let i = 0; i < particleCount; i++) {
+        evenlySampled.push(points[Math.floor(i * points.length / particleCount)]);
+      }
+      return evenlySampled;
+    }
     return points;
   }
 
@@ -103,6 +123,10 @@
 
   function setTargets(nextMode, instant = false) {
     mode = nextMode;
+    if (mode === 'heart') {
+      heartAngle = 0;
+      wish.classList.remove('show');
+    }
     const points = mode === 'heart' ? heartPoints : textPoints;
     particles.forEach((p, i) => {
       if (mode === 'heart') {
@@ -117,7 +141,12 @@
     });
     modeStarted = performance.now();
     clearTimeout(nextModeTimer);
-    nextModeTimer = setTimeout(() => setTargets(mode === 'text' ? 'heart' : 'text'), mode === 'text' ? 5200 : 17500);
+    if (mode === 'text') {
+      nextModeTimer = setTimeout(() => setTargets('heart'), 5200);
+    } else {
+      // Xoay trái tim một vòng rồi dừng, không quay lại màn chữ.
+      nextModeTimer = setTimeout(() => wish.classList.add('show'), 18000);
+    }
   }
 
   function rotatedHeartPoint(x, y) {
@@ -164,14 +193,15 @@
 
   function frame(time) {
     const dt = Math.min(34, time - lastFrame); lastFrame = time;
-    if (mode === 'heart' && !prefersReducedMotion) heartAngle = ((time - modeStarted) * .000035) % TAU;
+    if (mode === 'heart' && !prefersReducedMotion) heartAngle = -Math.min((time - modeStarted) * (TAU / 18000), TAU);
     drawBackground(time);
     particles.forEach(p => { p.update(dt, time); p.draw(time); });
     requestAnimationFrame(frame);
   }
 
   function toggle() {
-    hint.classList.add('hide'); setTargets(mode === 'text' ? 'heart' : 'text');
+    hint.classList.add('hide');
+    if (mode === 'text') setTargets('heart');
   }
 
   addEventListener('resize', resize, { passive: true });
